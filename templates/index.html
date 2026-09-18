@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>پایش کیت‌های آزمایشگاهی</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  /* پشتیبان: اگر کلاس‌های زیر در style.css تعریف نشده باشند، ظاهر پایه‌ای می‌گیرند */
+  .narrative-list { list-style: none; margin: 0; padding: 0; }
+  .narrative-list li {
+    position: relative;
+    padding: 0.35rem 1.5rem 0.35rem 0;
+    line-height: 1.9;
+    font-size: 0.92rem;
+    color: #2c3a36;
+  }
+  .narrative-list li::before {
+    content: "\f0eb";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    position: absolute;
+    right: 0;
+    top: 0.4rem;
+    font-size: 0.75rem;
+    color: #c99a3a;
+  }
+  .narrative-list li:not(:last-child) { border-bottom: 1px dashed #e3e8e6; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"><i class="fa-solid fa-vial"></i></span>
+    <div class="brand-text">
+      <h1>پایش کیت‌های آزمایشگاهی</h1>
+      <p>خروجی کیت، وضعیت پارتی/انقضا و درخواست‌های اضافه — بر پایه‌ی داده‌های آرشیو‌شده‌ی آزمایشگاه</p>
+    </div>
+  </div>
+  <div class="brand-status" id="dbStatus">
+    <span class="dot"></span><span class="status-text">در انتظار اجرای تحلیل</span>
+  </div>
+</header>
+
+<nav class="dept-switcher" id="deptSwitcher" aria-label="انتخاب بخش">
+  <!-- با جاوااسکریپت و بر اساس /api/departments پر می‌شود -->
+</nav>
+
+<section class="requisition">
+  <div class="req-slip">
+    <div class="req-field">
+      <label for="startDate">از تاریخ <span>(شمسی)</span></label>
+      <input type="text" id="startDate" placeholder="1405-01-01" inputmode="numeric">
+    </div>
+    <div class="req-divider"><i class="fa-solid fa-arrow-left-long"></i></div>
+    <div class="req-field">
+      <label for="endDate">تا تاریخ <span>(شمسی)</span></label>
+      <input type="text" id="endDate" placeholder="1405-03-31" inputmode="numeric">
+    </div>
+    <button class="run-btn" id="runBtn">
+      <i class="fa-solid fa-flask-vial"></i> اجرای تحلیل
+    </button>
+  </div>
+  <div class="req-ruler" aria-hidden="true"></div>
+  <div class="presets">
+    <span class="presets-label">بازه‌های آماده:</span>
+    <button class="chip" data-preset="this_month">این ماه</button>
+    <button class="chip" data-preset="last_3_months">سه ماه اخیر</button>
+    <button class="chip" data-preset="this_year">از ابتدای سال</button>
+  </div>
+  <p class="req-note" id="reqNote"></p>
+</section>
+
+<nav class="slide-tabs" id="tabs">
+  <button class="tab active" data-tab="kits"><span class="tab-dot dot-teal"></span>کیت و ظرفیت</button>
+  <button class="tab" data-tab="lots"><span class="tab-dot dot-amber"></span>پارتی‌ها و انقضا</button>
+  <button class="tab" data-tab="repeats"><span class="tab-dot dot-red"></span>تکرار و درخواست‌های اضافه</button>
+  <button class="tab" data-tab="chat"><span class="tab-dot dot-teal"></span>دستیار هوشمند</button>
+</nav>
+
+<div class="warn-box" id="chartLoadWarn" style="display:none; max-width:1180px; margin:1rem auto 0;">
+  <i class="fa-solid fa-triangle-exclamation"></i>
+  <span>کتابخانه‌ی نمودار از اینترنت بارگذاری نشد (احتمالاً فایروال یا اتصال اینترنت). جدول‌ها به‌درستی کار می‌کنند، فقط نمودارها نمایش داده نمی‌شوند.</span>
+</div>
+
+<main id="app">
+
+  <div class="empty-state" id="emptyState">
+    <i class="fa-solid fa-flask-vial"></i>
+    <h2>هنوز تحلیلی اجرا نشده</h2>
+    <p>یک بخش و بازه‌ی زمانی (شمسی) انتخاب کنید و روی «اجرای تحلیل» بزنید.</p>
+  </div>
+
+  <div id="reportRoot" style="display:none;">
+
+    <!-- تب ۱: کیت و ظرفیت -->
+    <section class="tab-panel active" id="panel-kits">
+      <div class="panel-head">
+        <h2>تعداد کیت خروجی و ظرفیت کل هر تست</h2>
+        <p>روی هر ردیف کلیک کنید تا جزئیات کیت‌ها و تفکیک دستگاه آن تست باز شود</p>
+      </div>
+      <div class="table-card">
+        <table class="data-table" id="tableKits">
+          <thead>
+            <tr>
+              <th>تست</th>
+              <th>کد</th>
+              <th>کل تست انجام‌شده (با دستگاه)</th>
+              <th>کیت ورودی</th>
+              <th>کیت خروجی</th>
+              <th>ظرفیت کل</th>
+              <th>ضایعات</th>
+              <th>درصد ضایعات</th>
+              <th>موجودی فعلی (آخرین ثبت)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="table-card" id="testDetailCard" style="display:none;">
+        <div class="detail-header">
+          <span id="detailTestName"></span>
+          <button class="close-detail" id="closeTestDetail"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="detail-sub-head">کیت‌های این تست</div>
+        <table class="data-table" id="tableKitDetail">
+          <thead>
+            <tr>
+              <th>نام کیت</th>
+              <th>کد آیتم</th>
+              <th>واحد</th>
+              <th>اندازه بسته</th>
+              <th>ورودی</th>
+              <th>خروجی</th>
+              <th>موجودی</th>
+              <th>ظرفیت</th>
+              <th>ضایعات</th>
+              <th>درصد ضایعات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="detail-sub-head">تاریخچه‌ی ورود/خروج (به تفکیک روز)</div>
+        <table class="data-table" id="tableMovementsDetail">
+          <thead>
+            <tr>
+              <th>تاریخ</th>
+              <th>ورودی</th>
+              <th>خروجی</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="detail-sub-head">تفکیک دستگاه</div>
+        <table class="data-table" id="tableDeviceDetail">
+          <thead>
+            <tr>
+              <th>نام دستگاه</th>
+              <th>نوع دستگاه</th>
+              <th>شرح لاگ</th>
+              <th>تعداد تست</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="chart-card">
+        <h3>خروجی کیت به تفکیک تست</h3>
+        <canvas id="chartKitOut" height="110"></canvas>
+      </div>
+
+      <div class="panel-head" style="margin-top:2rem;">
+        <h2>تحلیل و بینش</h2>
+        <p>نگاه سریع به پرمصرف‌ترین کیت‌ها، پرتست‌ترین آزمایش‌ها و بیشترین ضایعات این بازه</p>
+      </div>
+
+      <div class="readout-grid" style="margin-bottom:1rem;">
+        <div class="readout-card accent">
+          <span class="readout-label">بیشترین کیت خروجی</span>
+          <span class="readout-value" id="kpiTopKitOutput">—</span>
+        </div>
+        <div class="readout-card">
+          <span class="readout-label">پرتست‌ترین آزمایش</span>
+          <span class="readout-value" id="kpiTopTestCount">—</span>
+        </div>
+        <div class="readout-card accent">
+          <span class="readout-label">بیشترین ضایعات (تعداد)</span>
+          <span class="readout-value" id="kpiTopWaste">—</span>
+        </div>
+        <div class="readout-card">
+          <span class="readout-label">بیشترین درصد ضایعات</span>
+          <span class="readout-value" id="kpiTopWastePercent">—</span>
+        </div>
+        <div class="readout-card">
+          <span class="readout-label">بهره‌وری کلی این بخش</span>
+          <span class="readout-value" id="kpiOverallEfficiency">—</span>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h3>۵ کیت با بیشترین خروجی</h3>
+        <canvas id="chartTopKitsOutput" height="110"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>۵ تست با بیشترین تعداد انجام‌شده</h3>
+        <canvas id="chartTopTestsByCount" height="110"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>۵ تست با بیشترین ضایعات</h3>
+        <canvas id="chartTopTestsByWaste" height="110"></canvas>
+      </div>
+
+      <div class="panel-head" style="margin-top:2rem;">
+        <h2>مواد مصرفی عمومی</h2>
+        <p>موادی مثل کنترل، بافر شست‌وشو، سل، لوله واکنش و سمپلر که به یک تست خاص وصل نیستند و در جدول بالا نمی‌آیند — روی هر ردیف کلیک کنید تا تاریخچه‌ی ورود/خروج آن باز شود</p>
+      </div>
+      <div class="table-card">
+        <table class="data-table" id="tableConsumables">
+          <thead>
+            <tr>
+              <th>نام ماده</th>
+              <th>کد آیتم</th>
+              <th>واحد</th>
+              <th>ورودی</th>
+              <th>خروجی</th>
+              <th>موجودی فعلی (آخرین ثبت)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="table-card" id="consumableDetailCard" style="display:none;">
+        <div class="detail-header">
+          <span id="detailConsumableName"></span>
+          <button class="close-detail" id="closeConsumableDetail"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="detail-sub-head">تاریخچه‌ی ورود/خروج (به تفکیک روز)</div>
+        <table class="data-table" id="tableConsumableMovements">
+          <thead>
+            <tr>
+              <th>تاریخ</th>
+              <th>ورودی</th>
+              <th>خروجی</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- تب ۲: پارتی‌ها و انقضا -->
+    <section class="tab-panel" id="panel-lots">
+      <div class="panel-head">
+        <h2>وضعیت پارتی‌ها (لات‌ها) و تاریخ انقضا</h2>
+        <p>مرتب‌شده بر اساس نزدیک‌ترین تاریخ انقضا — این جدول مستقل از بازه‌ی انتخابی و آخرین وضعیت ثبت‌شده است</p>
+      </div>
+      <div class="readout-grid" style="margin-bottom:1rem;">
+        <div class="readout-card accent">
+          <span class="readout-label">پارتی‌های نزدیک به انقضا (کمتر از ۳۰ روز)</span>
+          <span class="readout-value" id="kpiNearExpiry">—</span>
+        </div>
+      </div>
+      <div class="table-card">
+        <table class="data-table" id="tableLots">
+          <thead>
+            <tr>
+              <th>تست</th>
+              <th>نام کیت</th>
+              <th>شماره پارتی</th>
+              <th>مانده</th>
+              <th>تاریخ انقضا</th>
+              <th>وضعیت</th>
+              <th>روز باقی‌مانده</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- تب ۳: تکرار و درخواست‌های اضافه -->
+    <section class="tab-panel" id="panel-repeats">
+      <div class="panel-head">
+        <h2>علت تکرار تست‌ها</h2>
+        <p>فایل اکسلی که بخش فنی برای ثبت تکرارها تهیه می‌کند را اینجا بارگذاری کنید — پس از اولین بار، نیازی به آپلود مجدد نیست (به تفکیک بخش انتخابی ذخیره می‌شود)</p>
+      </div>
+
+      <div class="req-slip" style="margin-bottom:1.2rem;">
+        <div class="req-field" style="width:auto;">
+          <label>فایل اکسل تکرارها</label>
+          <input type="file" id="repeatsFile" accept=".xlsx,.xls">
+        </div>
+        <button class="run-btn" id="uploadRepeatsBtn">
+          <i class="fa-solid fa-upload"></i> بارگذاری فایل
+        </button>
+        <span id="uploadRepeatsNote" style="font-size:0.82rem; color:#6E7F7A;"></span>
+      </div>
+
+      <div id="repeatsEmptyState" class="empty-state" style="padding:2.5rem 1rem;">
+        <i class="fa-solid fa-file-excel"></i>
+        <h2>هنوز فایلی بارگذاری نشده</h2>
+        <p>فایل اکسل «علت تکرار تست‌ها» را انتخاب و بارگذاری کنید.</p>
+      </div>
+
+      <div id="repeatsContent" style="display:none;">
+        <div class="readout-grid" style="margin-bottom:1rem;">
+          <div class="readout-card">
+            <span class="readout-label">کل ردیف‌ها در این بازه</span>
+            <span class="readout-value" id="kpiRepeatCount">—</span>
+          </div>
+        </div>
+
+        <div class="chart-grid">
+          <div class="chart-card">
+            <h3>تعداد تکرار به تفکیک تست</h3>
+            <canvas id="chartRepeatsByTest" height="160"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>تعداد تکرار به تفکیک دستگاه نهایی</h3>
+            <canvas id="chartRepeatsByDevice" height="160"></canvas>
+          </div>
+          <div class="chart-card wide">
+            <h3>تعداد تکرار به تفکیک علت</h3>
+            <canvas id="chartRepeatsByReason" height="120"></canvas>
+          </div>
+        </div>
+
+        <div class="table-card narrative-card" id="repeatsNarrativeCard" style="margin-top:1.2rem; display:none;">
+          <div class="detail-header" style="border-bottom:none; padding-bottom:0.4rem;">
+            <span><i class="fa-solid fa-lightbulb" style="margin-left:0.4rem;"></i>تحلیل</span>
+          </div>
+          <ul class="narrative-list" id="repeatsNarrativeList"></ul>
+        </div>
+
+        <div class="table-card" style="margin-top:1.2rem;">
+          <table class="data-table" id="tableRepeats">
+            <thead><tr id="repeatsHeadRow"></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="warn-box" id="warnBox" style="display:none;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="warnText"></span>
+      </div>
+    </section>
+
+    <!-- تب ۴: دستیار هوشمند -->
+    <section class="tab-panel" id="panel-chat">
+      <div class="panel-head">
+        <h2><i class="fa-solid fa-robot" style="margin-inline-end:0.4rem; color:var(--signature);"></i>دستیار هوشمند — بپرس، جواب بگیر</h2>
+        <p>سؤال را به زبان فارسی و طبیعی بپرس؛ پاسخ فقط بر پایه‌ی داده‌ی همین بازه (بالای صفحه) و همین بخش تولید می‌شود</p>
+      </div>
+
+      <div class="chat-layout">
+        <div>
+          <div class="chat-ask-card">
+            <div class="chat-ask-row">
+              <textarea id="chatInput" placeholder="مثلاً: بیشترین ضایعات مربوط به کدام تست بود؟" rows="2"></textarea>
+              <button class="run-btn" id="chatAskBtn"><i class="fa-solid fa-comment-dots"></i> بپرس</button>
+            </div>
+            <div class="chat-samples" id="chatSamples">
+              <span class="presets-label">نمونه سؤال‌ها:</span>
+              <button class="chip" data-q="بیشترین ضایعات مربوط به کدام تست بود؟">بیشترین ضایعات کدام تست است؟</button>
+              <button class="chip" data-q="کدام کیت‌ها نزدیک به تاریخ انقضا هستند؟">کیت‌های نزدیک به انقضا کدام‌اند؟</button>
+              <button class="chip" data-q="کدام دستگاه بیشترین تعداد تست را انجام داده؟">کدام دستگاه بیشترین تست را انجام داده؟</button>
+              <button class="chip" data-q="علت اصلی تکرار تست‌ها در این بازه چیست؟">علت اصلی تکرار تست‌ها چیست؟</button>
+              <button class="chip" data-q="بهره‌وری کلی بخش در این بازه چقدر است؟">بهره‌وری کلی بخش چقدر است؟</button>
+            </div>
+            <p class="req-note" id="chatNote"></p>
+          </div>
+
+          <div class="chat-thread" id="chatThread"></div>
+        </div>
+
+        <div class="chat-docs-card">
+          <h3><i class="fa-solid fa-file-lines" style="margin-inline-end:0.35rem;"></i>اسناد بازیابی‌شده</h3>
+          <p>این‌ها اسنادی از داده‌ی گزارش هستند که برای آخرین سؤال، مرتبط تشخیص داده شدند و مبنای پاسخ مدل بودند</p>
+          <div id="chatDocsList"><p class="chat-doc-empty">هنوز سؤالی پرسیده نشده.</p></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="foot-note">داده‌ها مستقیماً از دیتابیس آرشیو‌شده‌ی محلی خوانده می‌شود — بدون نیاز به اتصال اینترنت.</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"
+        onerror="this.onerror=null; var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js'; s.onerror=function(){window.__CHART_LOAD_FAILED__=true;}; document.head.appendChild(s);"></script>
+<script>const DEFAULT_TODAY = "{{ today }}";</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
